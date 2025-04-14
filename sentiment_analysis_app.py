@@ -240,9 +240,16 @@ with col1:
         height=300,
         placeholder="Type or paste your text here...\n\nExample:\nI love this product, it works great!\nThe customer service was terrible.\nIt was an okay experience, nothing special."
     )
+    
+    # Add an "Analyze Sentiment" button for mobile users
+    analyze_button = st.button("Analyze Sentiment", type="primary", use_container_width=True, 
+                              help="Click to analyze the text (useful for mobile users)")
 
-# Process text when input is provided
-if user_input:
+# Process text when input is provided and button is clicked or when Enter is pressed
+if user_input and (analyze_button or 'last_input' not in st.session_state or st.session_state.last_input != user_input):
+    # Store the current input to avoid reprocessing on reruns
+    st.session_state.last_input = user_input
+    
     # Add a spinner during processing
     with st.spinner("Analyzing sentiment..."):
         # Split text by lines and filter out empty lines
@@ -260,8 +267,9 @@ if user_input:
             'Sentiment Score': sentiment_scores,
             'Sentiment': sentiment_labels
         })
-    
-    # Output column
+
+# Output column
+if user_input:
     with col2:
         st.markdown("<div class='sub-header'>Sentiment Analysis Results</div>", unsafe_allow_html=True)
         
