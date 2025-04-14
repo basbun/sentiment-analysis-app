@@ -19,6 +19,18 @@ import nltk
 import os
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
+# Add this near the top of your file, after imports
+import platform
+import pkg_resources
+
+# Get installed torch version for compatibility notes
+try:
+    torch_version = pkg_resources.get_distribution("torch").version
+    python_version = platform.python_version()
+    st.sidebar.info(f"Running with: Python {python_version}, PyTorch {torch_version}")
+except:
+    st.sidebar.warning("PyTorch version information unavailable")
+
 # Set NLTK_DATA environment variable to the installed location
 os.environ['NLTK_DATA'] = '/Users/basbun/nltk_data'
 
@@ -131,10 +143,15 @@ progress_bar.empty()
 @st.cache_resource
 def load_model():
     """Load pre-trained model and tokenizer with caching for performance"""
-    model_name = "distilbert-base-uncased-finetuned-sst-2-english"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    return tokenizer, model
+    try:
+        model_name = "distilbert-base-uncased-finetuned-sst-2-english"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        return tokenizer, model
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        st.warning("Using VADER only for sentiment analysis")
+        return None, None
 
 # Load model and tokenizer for backup/comparison
 with st.spinner("Loading sentiment analysis models..."):
@@ -144,20 +161,18 @@ with st.spinner("Loading sentiment analysis models..."):
 def analyze_sentiment(text):
     """
     Analyze sentiment using VADER and convert to a score between -1 and 1
-    Falls back to DistilBERT if VADER fails
+    Falls back to simpler analysis if needed
     """
     if not text.strip():
         return 0.0
     
     try:
-        # Use VADER for sentiment analysis - handles negations and mixed sentiments well
+        # Use VADER for sentiment analysis
         vader_scores = vader_analyzer.polarity_scores(text)
-        
-        # VADER compound score ranges from -1 (very negative) to 1 (very positive)
         sentiment_score = vader_scores['compound']
         
-        # If VADER gives a neutral score for a longer text, use transformer model as backup
-        if -0.05 <= sentiment_score <= 0.05 and len(text.split()) > 10:
+        # Only use transformer if it was loaded successfully
+        if tokenizer is not None and model is not None and -0.05 <= sentiment_score <= 0.05 and len(text.split()) > 10:
             # Tokenize the text for the transformer model
             inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
             
@@ -169,7 +184,6 @@ def analyze_sentiment(text):
             probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
             
             # Convert to sentiment score (-1 to 1)
-            # For this model: index 0 is negative, index 1 is positive
             negative_prob = probabilities[0, 0].item()
             positive_prob = probabilities[0, 1].item()
             
@@ -182,27 +196,8 @@ def analyze_sentiment(text):
     
     except Exception as e:
         st.error(f"Error analyzing sentiment: {str(e)}")
-        
-        # Try using the transformer model as backup if VADER fails
-        try:
-            # Tokenize the text
-            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-            
-            # Get model output
-            with torch.no_grad():
-                outputs = model(**inputs)
-            
-            # Get probabilities with softmax
-            probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
-            
-            # Convert to sentiment score (-1 to 1)
-            negative_prob = probabilities[0, 0].item()
-            positive_prob = probabilities[0, 1].item()
-            
-            return positive_prob - negative_prob
-            
-        except:
-            return 0.0
+        # Return neutral score if everything fails
+        return 0.0
 
 def get_sentiment_label(score):
     """Convert numerical score to descriptive label with more granularity"""
